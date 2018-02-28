@@ -17,9 +17,12 @@ struct Macro
 
 struct Preprocessor::Data
 {
-	Data():isIf(0){}
+	Data():isIf(0),currentIndex(nullptr),currentCode(nullptr){}
+	int *currentIndex;
+	std::string *currentCode;
 	int isIf;
 	std::map<std::string, Macro> macros;
+	std::vector<std::string> fileStack;
 };
 
 std::string Preprocessor::getCurrentDir()
@@ -80,7 +83,19 @@ std::string Preprocessor::getIntMacro(std::string & macro)
 
 void Preprocessor::addError(std::string & info)
 {
-	throw info;
+	int index = *data->currentIndex;
+	std::string &code = *data->currentCode;
+	int line = 1;
+
+	for (int i = 0; i <index; ++i)
+	{
+		if (code[i] == '\n')
+		{
+			++line;
+		}
+	}
+
+	throw data->fileStack[data->fileStack.size()-1]+"第"+std::to_string(line)+"行:"+info;
 }
 
 void clearSpace(std::string & code, int & index)
@@ -248,7 +263,7 @@ void Preprocessor::parseElse(std::string & code, int & index,std::string &result
 				}
 				else
 				{
-					parse(code, index);
+					parse(code, index,false);
 				}
 			}
 			else if (cmd == "endif")
@@ -285,10 +300,15 @@ bool Preprocessor::defined(const std::string & macro)
 	return data->macros.find(macro) != data->macros.end();
 }
 
-std::string Preprocessor::parse(std::string & code,int& index)
+std::string Preprocessor::parse(std::string & code,int& index,bool use)
 {
 	std::string result;
 	bool idok = true;
+	int *tempIndex = data->currentIndex;
+	std::string *tempCode = data->currentCode;
+
+	data->currentIndex = &index;
+	data->currentCode = &code;
 
 	while (index<code.size())
 	{
@@ -330,7 +350,10 @@ std::string Preprocessor::parse(std::string & code,int& index)
 				}
 				
 				endCmd(code,index);
-				result += doIncludeFile(file);
+				if (use)
+				{
+					result += doIncludeFile(file);
+				}
 			}
 			else if (cmd == "define")
 			{
@@ -478,6 +501,9 @@ std::string Preprocessor::parse(std::string & code,int& index)
 		++index;
 	}
 
+	data->currentIndex = tempIndex;
+	data->currentCode = tempCode;
+
 	return result;
 }
 
@@ -530,11 +556,21 @@ std::string Preprocessor::getLibFile(std::string & fileName)
 		}
 		dir += fileName;
 
+		for (int i = 0; i < data->fileStack.size(); ++i)
+		{
+			if (dir == data->fileStack[i])
+			{
+				addError("不能重复包含文件" + fileName);
+			}
+		}
+
 		std::ifstream file(dir);
 		if (!file)
 		{
 			continue;
 		}
+
+		data->fileStack.push_back(dir);
 
 		return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
 	}
@@ -549,11 +585,21 @@ std::string Preprocessor::getAnyFile(std::string & fileName)
 	std::string dir = getCurrentDir();
 	dir += fileName;
 
+	for (int i = 0; i < data->fileStack.size(); ++i)
+	{
+		if (dir == data->fileStack[i])
+		{
+			addError("不能重复包含文件" + fileName);
+		}
+	}
+
 	std::ifstream file(dir);
 	if (!file)
 	{
 		return getLibFile(fileName);
 	}
+
+	data->fileStack.push_back(dir);
 
 	return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
 }
@@ -562,14 +608,18 @@ std::string Preprocessor::doFile(const std::string & fileName)
 {
 	data->macros.clear();
 	data->isIf = 0;
+	data->fileStack.clear();
 	std::ifstream file(fileName);
+
 	if (!file)
 	{
 		addError(std::string("无法打开文件") + fileName);
 	}
-	std::string code((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
 
+	std::string code((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
 	int index = 0;
+
+	data->fileStack.push_back(fileName);
 	return parse(code,index);
 }
 
@@ -577,7 +627,9 @@ std::string Preprocessor::doIncludeFile(std::string & fileName)
 {
 	std::string code = getFile(fileName);
 	int index = 0;
-	return parse(code, index);
+	std::string result=parse(code, index);
+	data->fileStack.pop_back();
+	return result;
 }
 
 std::string Preprocessor::getIfDef(std::string & code, int& index,bool def)
@@ -603,14 +655,14 @@ std::string Preprocessor::getIfDef(std::string & code, int& index,bool def)
 				if (cmd == "else")
 				{
 					endCmd(code, index);
-					parse(code,index);
+					parse(code,index,false);
 					cmd = getId(code, index);
 					break;
 				}
 				else if (cmd == "elif")
 				{
 					parseCondition(code, index);
-					parse(code,index);
+					parse(code,index,false);
 				}
 				else if (cmd == "endif")
 				{
@@ -1187,14 +1239,14 @@ std::string Preprocessor::getIf(std::string & code, int & index)
 				if (cmd == "else")
 				{
 					endCmd(code, index);
-					parse(code, index);
+					parse(code, index,false);
 					cmd = getId(code, index);
 					break;
 				}
 				else if (cmd == "elif")
 				{
 					parseCondition(code, index);
-					parse(code, index);
+					parse(code, index,false);
 				}
 				else if (cmd == "endif")
 				{

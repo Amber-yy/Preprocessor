@@ -12,7 +12,7 @@ public:
 	~Preprocessor();
 	std::string getIfDef(std::string & code, int &index,bool def);
 	std::string getIf(std::string & code, int &index);
-	std::string parse(std::string &fileName,int& index);
+	std::string parse(std::string &fileName,int& index,bool use=true);
 	std::string doFile(const std::string &fileName);
 	std::string doIncludeFile(std::string &fileName);
 	std::string getId(std::string & code, int& index);
